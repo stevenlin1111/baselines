@@ -94,6 +94,7 @@ def learn(*, network, env, total_timesteps,
     override_params=None,
     load_path=None,
     save_path=None,
+    buffer_goals=False,
     **kwargs
 ):
 
@@ -164,7 +165,11 @@ def learn(*, network, env, total_timesteps,
 
     eval_env = eval_env or env
 
-    rollout_worker = RolloutWorker(env, policy, dims, logger, monitor=True, **rollout_params)
+    if buffer_goals:
+        replay_buffer=policy.buffer
+    else:
+        replay_buffer=None
+    rollout_worker = RolloutWorker(env, policy, dims, logger, monitor=True, replay_buffer=replay_buffer, **rollout_params)
     evaluator = RolloutWorker(eval_env, policy, dims, logger, **eval_params)
 
     n_cycles = params['n_cycles']
@@ -185,6 +190,7 @@ def learn(*, network, env, total_timesteps,
 @click.option('--replay_strategy', type=click.Choice(['future', 'none']), default='future', help='the HER replay strategy to be used. "future" uses HER, "none" disables HER.')
 @click.option('--clip_return', type=int, default=1, help='whether or not returns should be clipped')
 @click.option('--demo_file', type=str, default = 'PATH/TO/DEMO/DATA/FILE.npz', help='demo data file path')
+@click.option('--buffer_goals', type=bool, default=False)
 def main(**kwargs):
     learn(**kwargs)
 
