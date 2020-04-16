@@ -68,7 +68,7 @@ class RolloutWorker:
                     freqs = np.delete(freqs, np.where(freqs==0))
                     probs = freqs/freqs.sum()
                     inverse_probs = 1/np.power(probs, self.alpha)
-                    inverse_probs = (inverse_probs)/(1/probs).sum()
+                    inverse_probs = (inverse_probs)/(inverse_probs).sum()
                     sample = np.random.choice(values[:-1], shape[0], p=inverse_probs)
                     goals[:, i] = sample
         self.g = goals
