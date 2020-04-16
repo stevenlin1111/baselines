@@ -11,7 +11,7 @@ class RolloutWorker:
     @store_args
     def __init__(self, venv, policy, dims, logger, T, rollout_batch_size=1,
                  exploit=False, use_target_net=False, compute_Q=False, noise_eps=0,
-                 random_eps=0, history_len=100, render=False, monitor=False, replay_buffer=None, do_skew_fit=False, alpha=0, **kwargs):
+                 random_eps=0, history_len=100, render=False, monitor=False, replay_buffer=None, do_skew_fit=False, sample_skewed_goals_from_buffer=True, alpha=0, **kwargs):
         """Rollout worker generates experience by interacting with one or many environments.
 
         Args:
@@ -38,6 +38,7 @@ class RolloutWorker:
         self.Q_history = deque(maxlen=history_len)
         self.replay_buffer=replay_buffer
         self.do_skew_fit=do_skew_fit
+        self.sample_skewed_goals_from_buffer = sample_skewed_goals_from_buffer
         self.alpha = alpha
 
         self.n_episodes = 0
@@ -62,15 +63,26 @@ class RolloutWorker:
                 goals = reshaped_ag[idxs]
             else:
                 goals = np.zeros(shape)
+                sample_probs = np.ones(size)
                 for i in range(reshaped_ag.shape[1]):
-                    freqs, values = np.histogram(reshaped_ag[:, i], bins=1000)
-                    values = np.delete(values, np.where(freqs==0))
-                    freqs = np.delete(freqs, np.where(freqs==0))
+                    ith_ag = reshaped_ag[:, i]
+                    freqs, values = np.histogram(ith_ag, bins=1000)
+                    freqs = freqs + 1
                     probs = freqs/freqs.sum()
                     inverse_probs = 1/np.power(probs, self.alpha)
                     inverse_probs = (inverse_probs)/(inverse_probs).sum()
+
+                    bin_size = (ith_ag.max()-ith_ag.min())/1000
+                    index = (ith_ag - ith_ag.min()) // bin_size
+                    index[np.argmax(ith_ag)] = 999
+                    sample_probs = sample_probs * inverse_probs[index.astype(int)]
+
                     sample = np.random.choice(values[:-1], shape[0], p=inverse_probs)
                     goals[:, i] = sample
+
+                if self.sample_skewed_goals_from_buffer:
+                    idxs = np.random.choice(range(size), shape[0], p = sample_probs/sample_probs.sum())
+                    goals = reshaped_ag[idxs]
         self.g = goals
 
     def generate_rollouts(self):

@@ -96,6 +96,7 @@ def learn(*, network, env, total_timesteps,
     save_path=None,
     buffer_goals=False,
     do_skew_fit=False,
+    sample_skewed_goals_from_buffer=True,
     alpha=0,
     **kwargs
 ):
@@ -171,7 +172,7 @@ def learn(*, network, env, total_timesteps,
         replay_buffer=policy.buffer
     else:
         replay_buffer=None
-    rollout_worker = RolloutWorker(env, policy, dims, logger, monitor=True, replay_buffer=replay_buffer, do_skew_fit=do_skew_fit, alpha=alpha, **rollout_params)
+    rollout_worker = RolloutWorker(env, policy, dims, logger, monitor=True, replay_buffer=replay_buffer, do_skew_fit=do_skew_fit, sample_skewed_goals_from_buffer=sample_skewed_goals_from_buffer, alpha=alpha, **rollout_params)
     evaluator = RolloutWorker(eval_env, policy, dims, logger, **eval_params)
 
     n_cycles = params['n_cycles']
@@ -194,6 +195,7 @@ def learn(*, network, env, total_timesteps,
 @click.option('--demo_file', type=str, default = 'PATH/TO/DEMO/DATA/FILE.npz', help='demo data file path')
 @click.option('--buffer_goals', type=bool, default=False)
 @click.option('--do_skew_fit', type=bool, default=False)
+@click.option('--sample_skewed_goals_from_buffer', type=bool, default=True)
 @click.option('--alpha', type=int, default=0)
 def main(**kwargs):
     learn(**kwargs)
