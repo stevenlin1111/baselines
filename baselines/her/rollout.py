@@ -11,7 +11,7 @@ class RolloutWorker:
     @store_args
     def __init__(self, venv, policy, dims, logger, T, rollout_batch_size=1,
                  exploit=False, use_target_net=False, compute_Q=False, noise_eps=0,
-                 random_eps=0, history_len=100, render=False, monitor=False, replay_buffer=None, **kwargs):
+                 random_eps=0, history_len=100, render=False, monitor=False, replay_buffer=None, do_skew_fit=False, alpha=0, **kwargs):
         """Rollout worker generates experience by interacting with one or many environments.
 
         Args:
@@ -37,6 +37,8 @@ class RolloutWorker:
         self.success_history = deque(maxlen=history_len)
         self.Q_history = deque(maxlen=history_len)
         self.replay_buffer=replay_buffer
+        self.do_skew_fit=do_skew_fit
+        self.alpha = alpha
 
         self.n_episodes = 0
         self.reset_all_rollouts()
@@ -46,15 +48,29 @@ class RolloutWorker:
         self.obs_dict = self.venv.reset()
         self.initial_o = self.obs_dict['observation']
         self.initial_ag = self.obs_dict['achieved_goal']
-        if not self.replay_buffer or self.replay_buffer.current_size == 0:
+        if not self.replay_buffer:
             goals = self.obs_dict['desired_goal']
         else:
             ag = self.replay_buffer.buffers['ag']
-            reshaped_ag = ag.reshape(ag.shape[0]*ag.shape[1], ag.shape[2])
             size = self.replay_buffer.current_size*ag.shape[1]
+            reshaped_ag = ag.reshape(ag.shape[0]*ag.shape[1], ag.shape[2])[:size, :]
             shape = self.obs_dict['desired_goal'].shape
-            idxs = np.random.choice(range(size), shape[0])
-            goals = reshaped_ag[idxs]
+            if self.replay_buffer.current_size == 0:
+                goals = np.zeros(shape)
+            elif not self.do_skew_fit:
+                idxs = np.random.choice(range(size), shape[0])
+                goals = reshaped_ag[idxs]
+            else:
+                goals = np.zeros(shape)
+                for i in range(reshaped_ag.shape[1]):
+                    freqs, values = np.histogram(reshaped_ag[:, i], bins=1000)
+                    values = np.delete(values, np.where(freqs==0))
+                    freqs = np.delete(freqs, np.where(freqs==0))
+                    probs = freqs/freqs.sum()
+                    inverse_probs = 1/np.power(probs, self.alpha)
+                    inverse_probs = (inverse_probs)/(1/probs).sum()
+                    sample = np.random.choice(values[:-1], shape[0], p=inverse_probs)
+                    goals[:, i] = sample
         self.g = goals
 
     def generate_rollouts(self):
