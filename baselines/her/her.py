@@ -38,7 +38,7 @@ def train(*, policy, rollout_worker, evaluator,
     for epoch in range(n_epochs):
         # train
         rollout_worker.clear_history()
-        for _ in range(n_cycles):
+        for cycle_num in range(n_cycles):
             episode = rollout_worker.generate_rollouts()
             policy.store_episode(episode)
             for _ in range(n_batches):

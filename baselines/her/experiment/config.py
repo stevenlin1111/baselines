@@ -134,6 +134,7 @@ def configure_her(params):
     # Prepare configuration for HER.
     her_params = {
         'reward_fun': reward_fun,
+        'env': env,
     }
     for name in ['replay_strategy', 'replay_k']:
         her_params[name] = params[name]

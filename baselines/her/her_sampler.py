@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def make_sample_her_transitions(replay_strategy, replay_k, reward_fun):
+def make_sample_her_transitions(replay_strategy, replay_k, reward_fun, env):
     """Creates a sample function that can be used for HER experience replay.
 
     Args:
@@ -16,7 +16,10 @@ def make_sample_her_transitions(replay_strategy, replay_k, reward_fun):
     else:  # 'replay_strategy' == 'none'
         future_p = 0
 
-    def _sample_her_transitions(episode_batch, batch_size_in_transitions):
+    env_p = 0.3
+
+    def _sample_her_transitions(episode_batch, batch_size_in_transitions,
+                                sample_probs=None, ag=None):
         """episode_batch is {key: array(buffer_size x T x dim_key)}
         """
         T = episode_batch['u'].shape[1]
@@ -41,6 +44,19 @@ def make_sample_her_transitions(replay_strategy, replay_k, reward_fun):
         # keep the original goal.
         future_ag = episode_batch['ag'][episode_idxs[her_indexes], future_t]
         transitions['g'][her_indexes] = future_ag
+
+        env_indexes = np.where(np.random.uniform(size=batch_size) < env_p)[0]
+        if sample_probs is None:
+            env_indexes_2 = np.random.randint(batch_size, size=len(env_indexes))
+            env_t_samples = np.random.randint(T, size=len(env_indexes))
+            env_episode_idxs = np.random.randint(0, rollout_batch_size, batch_size)
+            transitions['g'][env_indexes] = episode_batch['ag'][
+                env_episode_idxs[env_indexes_2], env_t_samples
+            ]
+        else:
+            new_goal_idxs = np.random.choice(len(ag), size=len(env_indexes), p=sample_probs)
+            transitions['g'][env_indexes] = ag[new_goal_idxs]
+
 
         # Reconstruct info dictionary for reward  computation.
         info = {}

@@ -156,9 +156,10 @@ def get_alg_module(alg, submodule=None):
     try:
         # first try to import the alg module from baselines
         alg_module = import_module('.'.join(['baselines', alg, submodule]))
-    except ImportError:
+    except ImportError as e:
         # then from rl_algs
         alg_module = import_module('.'.join(['rl_' + 'algs', alg, submodule]))
+        print('failed import, using alg_module')
 
     return alg_module
 

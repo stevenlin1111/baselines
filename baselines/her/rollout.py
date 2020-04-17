@@ -38,6 +38,7 @@ class RolloutWorker:
         self.success_history = deque(maxlen=history_len)
         self.Q_history = deque(maxlen=history_len)
         self.entropy_history = deque(maxlen=history_len)
+        self.sample_prob_max_history = deque(maxlen=history_len)
         self.replay_buffer=replay_buffer
         self.do_skew_fit=do_skew_fit
         self.sample_skewed_goals_from_buffer = sample_skewed_goals_from_buffer
@@ -64,33 +65,23 @@ class RolloutWorker:
                 idxs = np.random.choice(range(size), shape[0])
                 goals = reshaped_ag[idxs]
             else:
-                goals = np.zeros(shape)
-                if self.use_gmm:
-                    self.dist = sklearn.mixture.GaussianMixture(10)
-                    self.dist.fit(reshaped_ag)
-                    sample_probs = 1/np.exp(self.alpha*self.dist.score_samples(reshaped_ag))
-                    sample_probs = sample_probs/sample_probs.sum()
-                else:
-                    sample_probs = np.ones(size)
-                    for i in range(reshaped_ag.shape[1]):
-                        ith_ag = reshaped_ag[:, i]
-                        freqs, values = np.histogram(ith_ag, bins=1000)
-                        freqs = freqs + 1
-                        probs = freqs/freqs.sum()
-                        inverse_probs = 1/np.power(probs, self.alpha)
-                        inverse_probs = (inverse_probs)/(inverse_probs).sum()
 
-                        bin_size = (ith_ag.max()-ith_ag.min())/1000
-                        index = (ith_ag - ith_ag.min()) // bin_size
-                        index = np.where(index==1000, 999, index)
-                        sample_probs = sample_probs * inverse_probs[index.astype(int)]
+                # Manually get the rotation component of the achieved goal to skew on.
+                reshaped_ag_rot = reshaped_ag[:, 3:]
 
-                        sample = np.random.choice(values[:-1], shape[0], p=inverse_probs)
-                        goals[:, i] = sample
-                self.entropy_history.append(scipy.stats.entropy(sample_probs, base=2))
-                if self.sample_skewed_goals_from_buffer:
-                    idxs = np.random.choice(range(size), shape[0], p = sample_probs/sample_probs.sum())
-                    goals = reshaped_ag[idxs]
+                self.dist = sklearn.mixture.GaussianMixture(10)
+                self.dist.fit(reshaped_ag_rot)
+                sample_probs = 1/np.exp(self.alpha*self.dist.score_samples(reshaped_ag_rot))
+                sample_probs = sample_probs/sample_probs.sum()
+                self.sample_prob_max_history.append(sample_probs.max())
+                idxs = np.random.choice(range(size), shape[0],
+                                        p=sample_probs/sample_probs.sum())
+                goals = reshaped_ag[idxs]
+
+            if self.replay_buffer.current_size > 100:
+                pass
+                # Reweigh for training batches
+                # self.replay_buffer.reweigh_samples(self.alpha)
         self.g = goals
 
     def generate_rollouts(self):
@@ -186,6 +177,7 @@ class RolloutWorker:
         """
         self.success_history.clear()
         self.Q_history.clear()
+        self.sample_prob_max_history.clear()
 
     def current_success_rate(self):
         return np.mean(self.success_history)
@@ -209,6 +201,7 @@ class RolloutWorker:
         logs += [('episode', self.n_episodes)]
         if self.do_skew_fit:
             logs+= [('entropy', np.mean(self.entropy_history))]
+            logs+= [('max_sample_prob', np.mean(self.sample_prob_max_history))]
 
         if prefix != '' and not prefix.endswith('/'):
             return [(prefix + '/' + key, val) for key, val in logs]

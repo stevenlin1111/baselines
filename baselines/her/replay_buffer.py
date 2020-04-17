@@ -1,6 +1,7 @@
 import threading
 
 import numpy as np
+import sklearn.mixture
 
 
 class ReplayBuffer:
@@ -22,12 +23,28 @@ class ReplayBuffer:
         # self.buffers is {key: array(size_in_episodes x T or T+1 x dim_key)}
         self.buffers = {key: np.empty([self.size, *shape])
                         for key, shape in buffer_shapes.items()}
-
+        self.skew_weights = np.zeros(self.size * 100)
+        self.skew_weights[0] = 0.0
+        self.has_weighed = False
         # memory management
         self.current_size = 0
         self.n_transitions_stored = 0
 
         self.lock = threading.Lock()
+        self.alpha = alpha
+
+    def reweigh_samples(self, alpha):
+        self.alpha = alpha
+        with self.lock:
+            ag = self.buffers['ag']
+            size = self.current_size*ag.shape[1]
+            reshaped_ag = ag.reshape(ag.shape[0]*ag.shape[1], ag.shape[2])[:size, :]
+            dist = sklearn.mixture.GaussianMixture(10)
+            dist.fit(reshaped_ag)
+            sample_probs = 1/np.exp(self.alpha*dist.score_samples(reshaped_ag))
+            sample_probs = sample_probs/sample_probs.sum()
+            self.skew_weights[:size] = sample_probs
+            self.has_weighed = True
 
     @property
     def full(self):
@@ -38,16 +55,23 @@ class ReplayBuffer:
         """Returns a dict {key: array(batch_size x shapes[key])}
         """
         buffers = {}
-
+        sample_probs = None
         with self.lock:
             assert self.current_size > 0
             for key in self.buffers.keys():
                 buffers[key] = self.buffers[key][:self.current_size]
 
+            ag = self.buffers['ag']
+            size = self.current_size*ag.shape[1]
+            reshaped_ag = ag.reshape(ag.shape[0]*ag.shape[1], ag.shape[2])[:size, :]
+            sample_probs = self.skew_weights[:size].flatten()
+
         buffers['o_2'] = buffers['o'][:, 1:, :]
         buffers['ag_2'] = buffers['ag'][:, 1:, :]
 
-        transitions = self.sample_transitions(buffers, batch_size)
+        transitions = self.sample_transitions(buffers, batch_size,
+                                              sample_probs=sample_probs if self.has_weighed else None,
+                                              ag=reshaped_ag)
 
         for key in (['r', 'o_2', 'ag_2'] + list(self.buffers.keys())):
             assert key in transitions, "key %s missing from transitions" % key
