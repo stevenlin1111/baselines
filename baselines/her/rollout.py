@@ -2,7 +2,8 @@ from collections import deque
 
 import numpy as np
 import pickle
-
+import sklearn.mixture
+import scipy.stats
 from baselines.her.util import convert_episode_to_batch_major, store_args
 
 
@@ -11,7 +12,7 @@ class RolloutWorker:
     @store_args
     def __init__(self, venv, policy, dims, logger, T, rollout_batch_size=1,
                  exploit=False, use_target_net=False, compute_Q=False, noise_eps=0,
-                 random_eps=0, history_len=100, render=False, monitor=False, replay_buffer=None, do_skew_fit=False, sample_skewed_goals_from_buffer=True, alpha=0, **kwargs):
+                 random_eps=0, history_len=100, render=False, monitor=False, replay_buffer=None, do_skew_fit=False, use_gmm=False, sample_skewed_goals_from_buffer=True, alpha=0, **kwargs):
         """Rollout worker generates experience by interacting with one or many environments.
 
         Args:
@@ -36,11 +37,12 @@ class RolloutWorker:
 
         self.success_history = deque(maxlen=history_len)
         self.Q_history = deque(maxlen=history_len)
+        self.entropy_history = deque(maxlen=history_len)
         self.replay_buffer=replay_buffer
         self.do_skew_fit=do_skew_fit
         self.sample_skewed_goals_from_buffer = sample_skewed_goals_from_buffer
+        self.use_gmm = use_gmm
         self.alpha = alpha
-
         self.n_episodes = 0
         self.reset_all_rollouts()
         self.clear_history()
@@ -63,23 +65,29 @@ class RolloutWorker:
                 goals = reshaped_ag[idxs]
             else:
                 goals = np.zeros(shape)
-                sample_probs = np.ones(size)
-                for i in range(reshaped_ag.shape[1]):
-                    ith_ag = reshaped_ag[:, i]
-                    freqs, values = np.histogram(ith_ag, bins=1000)
-                    freqs = freqs + 1
-                    probs = freqs/freqs.sum()
-                    inverse_probs = 1/np.power(probs, self.alpha)
-                    inverse_probs = (inverse_probs)/(inverse_probs).sum()
+                if self.use_gmm:
+                    self.dist = sklearn.mixture.GaussianMixture(10)
+                    self.dist.fit(reshaped_ag)
+                    sample_probs = 1/np.exp(self.alpha*self.dist.score_samples(reshaped_ag))
+                    sample_probs = sample_probs/sample_probs.sum()
+                else:
+                    sample_probs = np.ones(size)
+                    for i in range(reshaped_ag.shape[1]):
+                        ith_ag = reshaped_ag[:, i]
+                        freqs, values = np.histogram(ith_ag, bins=1000)
+                        freqs = freqs + 1
+                        probs = freqs/freqs.sum()
+                        inverse_probs = 1/np.power(probs, self.alpha)
+                        inverse_probs = (inverse_probs)/(inverse_probs).sum()
 
-                    bin_size = (ith_ag.max()-ith_ag.min())/1000
-                    index = (ith_ag - ith_ag.min()) // bin_size
-                    index = np.where(index==1000, 999, index)
-                    sample_probs = sample_probs * inverse_probs[index.astype(int)]
+                        bin_size = (ith_ag.max()-ith_ag.min())/1000
+                        index = (ith_ag - ith_ag.min()) // bin_size
+                        index = np.where(index==1000, 999, index)
+                        sample_probs = sample_probs * inverse_probs[index.astype(int)]
 
-                    sample = np.random.choice(values[:-1], shape[0], p=inverse_probs)
-                    goals[:, i] = sample
-
+                        sample = np.random.choice(values[:-1], shape[0], p=inverse_probs)
+                        goals[:, i] = sample
+                self.entropy_history.append(scipy.stats.entropy(sample_probs, base=2))
                 if self.sample_skewed_goals_from_buffer:
                     idxs = np.random.choice(range(size), shape[0], p = sample_probs/sample_probs.sum())
                     goals = reshaped_ag[idxs]
@@ -199,6 +207,8 @@ class RolloutWorker:
         if self.compute_Q:
             logs += [('mean_Q', np.mean(self.Q_history))]
         logs += [('episode', self.n_episodes)]
+        if self.do_skew_fit:
+            logs+= [('entropy', np.mean(self.entropy_history))]
 
         if prefix != '' and not prefix.endswith('/'):
             return [(prefix + '/' + key, val) for key, val in logs]
