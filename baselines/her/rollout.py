@@ -74,7 +74,7 @@ class RolloutWorker:
 
                     bin_size = (ith_ag.max()-ith_ag.min())/1000
                     index = (ith_ag - ith_ag.min()) // bin_size
-                    index[np.argmax(ith_ag)] = 999
+                    index = np.where(index==1000, 999, index)
                     sample_probs = sample_probs * inverse_probs[index.astype(int)]
 
                     sample = np.random.choice(values[:-1], shape[0], p=inverse_probs)
