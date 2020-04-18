@@ -67,7 +67,8 @@ class RolloutWorker:
             else:
 
                 # Manually get the rotation component of the achieved goal to skew on.
-                # reshaped_ag_rot = reshaped_ag[:, 3:]
+                reshaped_ag_rot = reshaped_ag[:, 3:]
+                # reshaped_ag_rot = reshaped_ag
 
                 self.dist = sklearn.mixture.GaussianMixture(10)
                 self.dist.fit(reshaped_ag_rot)
@@ -80,7 +81,7 @@ class RolloutWorker:
 
             if self.replay_buffer.current_size > 100:
                 pass
-                # Reweigh for training batches
+                # Reweigh for training batches. Currently disabled.
                 # self.replay_buffer.reweigh_samples(self.alpha)
         self.g = goals
 
