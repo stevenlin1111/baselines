@@ -67,7 +67,7 @@ class RolloutWorker:
             else:
 
                 # Manually get the rotation component of the achieved goal to skew on.
-                reshaped_ag_rot = reshaped_ag[:, 3:]
+                # reshaped_ag_rot = reshaped_ag[:, 3:]
 
                 self.dist = sklearn.mixture.GaussianMixture(10)
                 self.dist.fit(reshaped_ag_rot)

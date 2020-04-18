@@ -31,7 +31,6 @@ class ReplayBuffer:
         self.n_transitions_stored = 0
 
         self.lock = threading.Lock()
-        self.alpha = alpha
 
     def reweigh_samples(self, alpha):
         self.alpha = alpha
